@@ -93,10 +93,17 @@ router.post('/analyze', async (req, res) => {
 });
 
 // 기본 경로 테스트용
-router.get('/', (req, res) => res.json({ status: 'API is working' }));
+router.get('/', (req, res) => res.json({ status: 'Review Insight API is active' }));
 
-// 라우팅 연결
-app.use('/api', router);
+// 라우팅 연결 (중요: 서버리스 환경에서는 루트('/')로 연결하는 것이 가장 안전합니다)
 app.use('/.netlify/functions/api', router);
+app.use('/api', router);
+app.use('/', router); 
+
+// 존재하지 않는 경로에 대한 처리 (디버깅용)
+app.use((req, res) => {
+    console.log('알 수 없는 경로 요청:', req.url);
+    res.status(404).json({ success: false, message: `정의되지 않은 경로입니다: ${req.url}` });
+});
 
 module.exports.handler = serverless(app);
