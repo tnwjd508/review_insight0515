@@ -86,8 +86,12 @@ router.post('/analyze', async (req, res) => {
     }
 });
 
-// 모든 API 요청을 router로 연결
+// 기본 경로 대응 및 에러 핸들링
+router.get('/', (req, res) => res.send('API is running...'));
+
+// 모든 요청을 router로 연결 (경로를 유연하게 잡음)
 app.use('/.netlify/functions/api', router);
-app.use('/api', router); // 로컬 테스트 및 리다이렉트 대응
+app.use('/api', router);
+app.use('/', router); // Netlify 환경에서 함수 자체가 루트로 잡힐 때 대응
 
 module.exports.handler = serverless(app);
