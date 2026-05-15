@@ -1,5 +1,5 @@
 /**
- * Review Insight - Netlify Serverless Function (Optimized)
+ * Review Insight - Netlify Serverless Function (Ultra-Stable Version)
  */
 
 const express = require('express');
@@ -12,98 +12,92 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// API 라우터 설정
 const router = express.Router();
 
 /**
- * 감성 분석 API 엔드포인트
+ * 감성 분석 API
  */
 router.post('/analyze', async (req, res) => {
+    console.log('--- API 요청 수신 ---');
     const { text } = req.body;
 
-    // 1. 입력값 검증
-    if (!text) {
-        return res.status(400).json({ success: false, message: '분석할 텍스트가 없습니다.' });
+    // 1. 초기 검증
+    if (!text || text.trim().length === 0) {
+        return res.status(400).json({ success: false, message: '분석할 텍스트를 입력해주세요.' });
     }
 
-    // 2. 환경 변수 존재 확인 (502 에러 방지용)
-    if (!process.env.OPENAI_API_KEY || !process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-        console.error('환경 변수가 누락되었습니다. Netlify 설정을 확인하세요.');
-        return res.status(500).json({ 
-            success: false, 
-            message: '서버 환경 설정(API Key 등)이 완료되지 않았습니다.' 
-        });
+    // 2. 환경 변수 체크 (상세 로그 남김)
+    const hasEnv = !!(process.env.OPENAI_API_KEY && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+    if (!hasEnv) {
+        console.error('CRITICAL: 환경 변수 누락됨');
+        return res.status(500).json({ success: false, message: '서버 설정 오류: 환경 변수가 등록되지 않았습니다.' });
     }
 
     try {
-        console.log('분석 요청 시작:', text.substring(0, 20) + '...');
-
-        // 3. OpenAI 초기화 및 호출
+        // 3. OpenAI 분석 (타임아웃 및 에러 방어)
         const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        
+        console.log('OpenAI 호출 중...');
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
-                {
-                    role: "system",
-                    content: `너는 감성 분석 전문가야. JSON 형식으로만 답해. 
-                    형식: {"sentiment": "positive|negative|neutral", "confidence": 0-100, "reason": "이유"}`
-                },
+                { role: "system", content: "감성 분석 전문가로서 JSON으로만 응답하라. 형식: {sentiment: 'positive'|'negative'|'neutral', confidence: 0-100, reason: '이유'}" },
                 { role: "user", content: text }
             ],
             response_format: { type: "json_object" },
-            timeout: 15000 // 15초 타임아웃 설정
+            timeout: 8000 // 8초 타임아웃
+        }).catch(err => {
+            throw new Error(`OpenAI 호출 실패: ${err.message}`);
         });
 
-        const result = JSON.parse(completion.choices[0].message.content);
-        console.log('AI 분석 완료:', result.sentiment);
-
-        // 4. Supabase 초기화 및 로그 저장 (비동기로 진행하여 응답 속도 최적화 가능)
-        const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-        
-        // 저장을 기다리되, 실패해도 사용자에게 결과를 보여주기 위해 에러 처리 분리
+        const content = completion.choices[0].message.content;
+        let analysis;
         try {
-            await supabase.from('sentiment_logs').insert([{
-                input_text: text,
-                sentiment: result.sentiment,
-                confidence: result.confidence,
-                reason: result.reason
-            }]);
-            console.log('DB 저장 성공');
-        } catch (dbError) {
-            console.error('DB 저장 중 오류 발생 (무시하고 진행):', dbError.message);
+            analysis = JSON.parse(content);
+        } catch (e) {
+            throw new Error('AI 응답 데이터 파싱 실패');
         }
 
-        // 5. 성공 응답 반환
-        return res.json({
+        console.log('분석 완료:', analysis.sentiment);
+
+        // 4. Supabase 저장 (비동기로 진행, 응답 지연 방지)
+        const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        
+        // 저장을 기다리지 않고 즉시 응답을 보내기 위해 then/catch 사용
+        supabase.from('sentiment_logs').insert([{
+            input_text: text,
+            sentiment: analysis.sentiment,
+            confidence: analysis.confidence,
+            reason: analysis.reason
+        }]).then(({ error }) => {
+            if (error) console.error('DB 저장 에러 (백그라운드):', error.message);
+            else console.log('DB 저장 완료 (백그라운드)');
+        }).catch(e => console.error('DB 작업 중 예외 발생:', e));
+
+        // 5. 최종 결과 즉시 반환
+        return res.status(200).json({
             success: true,
             data: {
-                ...result,
-                icon: result.sentiment === 'positive' ? '😊' : (result.sentiment === 'negative' ? '😢' : '😐')
+                ...analysis,
+                icon: analysis.sentiment === 'positive' ? '😊' : (analysis.sentiment === 'negative' ? '😢' : '😐')
             }
         });
 
     } catch (error) {
-        console.error('분석 과정 중 에러 발생:', error);
+        console.error('최종 에러 핸들러:', error.message);
         return res.status(500).json({
             success: false,
-            message: '분석 중 오류가 발생했습니다.',
-            error: error.message
+            message: '분석 중 문제가 발생했습니다.',
+            debug: error.message // 사용자에게 구체적인 힌트 제공
         });
     }
 });
 
-// 기본 경로 테스트용
-router.get('/', (req, res) => res.json({ status: 'Review Insight API is active' }));
+// 헬스체크 및 경로 대응
+router.get('/', (req, res) => res.json({ message: 'Review Insight Serverless API is ready' }));
 
-// 라우팅 연결 (중요: 서버리스 환경에서는 루트('/')로 연결하는 것이 가장 안전합니다)
 app.use('/.netlify/functions/api', router);
 app.use('/api', router);
-app.use('/', router); 
-
-// 존재하지 않는 경로에 대한 처리 (디버깅용)
-app.use((req, res) => {
-    console.log('알 수 없는 경로 요청:', req.url);
-    res.status(404).json({ success: false, message: `정의되지 않은 경로입니다: ${req.url}` });
-});
+app.use('/', router);
 
 module.exports.handler = serverless(app);
