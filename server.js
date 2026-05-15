@@ -27,12 +27,12 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 app.use(cors());
 app.use(express.json());
 
-// 정적 파일 서빙
-app.use(express.static(path.join(__dirname, '../public')));
+// 정적 파일 서빙 (루트 폴더)
+app.use(express.static(path.join(__dirname, '.')));
 
-// 기본 라우트
+// 기본 라우트 - index.html 제공
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 /**

@@ -2,10 +2,10 @@
   "name": "review-insight",
   "version": "1.0.0",
   "description": "AI Sentiment Analyzer using OpenAI and Supabase",
-  "main": "server/index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "nodemon server/index.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
